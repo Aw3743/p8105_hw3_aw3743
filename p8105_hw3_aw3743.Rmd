@@ -1,7 +1,7 @@
 ---
 title: "P8105 Homework 3"
 author: Aisha Waggeh
-date: October 13 2025
+date: "October 13 2025"
 output: github_document
 ---
 
@@ -16,21 +16,341 @@ knitr::opts_chunk$set(
 )
 
 library(tidyverse)
-library(p8105.datasets)
+library(lubridate)
 library(scales)
 library(patchwork)
 library(knitr)
+library(janitor) 
 ```
 
 
 
 # Problem 1
+This problem explores the Instacart dataset, which contains grocery order data from Instacart users. My analysis focuses on understanding shopping patterns across different aisles and products.
 
+Loading instacart dataset from p8105.datasets w/ the below 
+```{r}
+library(p8105.datasets)
+data("instacart")
+```
 
+### Dataset Description
+The Instacart dataset contains `r format(nrow(instacart), big.mark = ",")` observations of grocery orders from Instacart users. Each row represents a single item in an order, with `r ncol(instacart)` variables describing the product, order details, and user information.
+
+Key variables include:
+- `product_id`, `product_name`: Unique identifier and name of the product
+- `aisle_id`, `aisle`, `department_id`, `department`: Product categorization
+- `order_id`, `user_id`: Order and user identifiers
+- `order_dow`, `order_hour_of_day`: Day of week and hour when order was placed
+- `days_since_prior_order`: Days since user's previous order
+
+To understand the structure of the data, here are three example observations:
+
+```{r example-obs}
+instacart %>%
+  select(product_name, aisle, department, order_dow, order_hour_of_day) %>%
+  head(3) %>%
+  kable()
+```
+
+### 1a: Aisle Analysis
+
+First, I analyzed how many aisles are there, and which aisles are the most items ordered from?
 
 ```{r}
+# Count items per aisle and identify top aisles
+aisle_summary <- instacart %>%
+  count(aisle, sort = TRUE)
+
+# Print number of aisles
+cat("Number of aisles:", nrow(aisle_summary), "\n\n")
+cat("Top 10 aisles by number of items ordered:\n")
+
+# Create and print the top 10 aisles table
+aisle_summary %>%
+  head(10) %>%
+  rename(Aisle = aisle, `Number of Orders` = n) %>%
+  kable()
+```
+
+There are **`r nrow(aisle_summary)` distinct aisles** in the dataset. The aisles with the most items ordered are **fresh vegetables** (150,609 orders), **fresh fruits** (150,473 orders), **packaged vegetables fruits** (78,493 orders), **yogurt** (55,240 orders), and **packaged cheese** (41,699 orders).
+
+
+### 1b: Plot of items ordered per aisle (for aisles with >10,000 items)
+
+```{r}
+aisle_summary %>%
+  filter(n > 10000) %>%
+  arrange(n) %>%                     
+  mutate(aisle = fct_reorder(aisle, n)) %>%
+  ggplot(aes(x = n, y = aisle)) +
+  geom_col(fill = "steelblue") +     # adds nicer color
+  labs(
+    title = "Number of Items Ordered by Aisle",
+    subtitle = "Aisles with more than 10,000 items ordered",
+    x = "Number of Items Ordered",
+    y = "Aisle"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.y = element_text(size = 7))
+```
+
+This plot shows the number of items ordered in each aisle, limited to aisles with more than 10,000 items. The aisles are arranged from most to least popular, making it easy to compare across categories. Fresh vegetables and fresh fruits are clearly the most popular shopping categories, with nearly identical order volumes.
+
+### 1c: Three most popular items in specific aisles
+
+```{r popular_items}
+# Defining aisles of interest
+target_aisles <- c("baking ingredients", "dog food care", "packaged vegetables fruits")
+
+# Compute top 3 items per aisle
+popular_items <- instacart %>%
+  filter(aisle %in% target_aisles) %>%
+  group_by(aisle, product_name) %>%
+  summarize(n_ordered = n(), .groups = "drop") %>%
+  group_by(aisle) %>%
+  slice_max(n_ordered, n = 3) %>%
+  arrange(aisle, desc(n_ordered))
+
+# Print table with proper column names
+cat("Three most popular items in each specified aisle:\n")
+
+popular_items %>%
+  rename(Aisle = aisle,
+         Product = product_name,
+         `Number of Orders` = n_ordered) %>%
+  kable(caption = "Most Popular Items by Aisle")
 
 ```
 
-# Section 2
+The table shows the three most frequently ordered items in each of the specified aisles. **Light Brown Sugar** is the most popular baking ingredient with 499 orders, while **Snack Sticks Chicken & Rice Recipe Dog Treats** are the top choice in dog food care with 30 orders. **Organic Baby Spinach** dominates the packaged vegetables fruits aisle with 9,784 orders, significantly more than the other categories.
 
+### 1d: Mean order hour for Pink Lady Apples and Coffee Ice Cream by day of week
+
+```{r}
+items_of_interest <- c("Pink Lady Apples", "Coffee Ice Cream")
+
+order_times <- instacart %>%
+  filter(product_name %in% items_of_interest) %>%
+  mutate(
+    day_of_week = case_when(
+      order_dow == 0 ~ "Sunday",
+      order_dow == 1 ~ "Monday", 
+      order_dow == 2 ~ "Tuesday",
+      order_dow == 3 ~ "Wednesday",
+      order_dow == 4 ~ "Thursday",
+      order_dow == 5 ~ "Friday",
+      order_dow == 6 ~ "Saturday"
+    ),
+    day_of_week = factor(
+      day_of_week, 
+      levels = c("Sunday", "Monday", "Tuesday", "Wednesday", 
+                 "Thursday", "Friday", "Saturday")
+    )
+  ) %>%
+  group_by(product_name, day_of_week) %>%
+  summarise(mean_hour = mean(order_hour_of_day, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = day_of_week, values_from = mean_hour)
+
+cat("Mean hour of day when products are ordered:\n")
+
+order_times %>%
+  rename(Product = product_name) %>%
+  kable(digits = 1, align = "c", caption = "Average Order Time by Day of Week (24-hour format)")
+```
+
+This 2×7 table shows the average hour of the day (in 24-hour format) when Pink Lady Apples and Coffee Ice Cream are ordered on each day of the week. **Coffee Ice Cream** tends to be ordered later in the day (peak around 3:00-3:30 PM on Tuesday-Thursday), while **Pink Lady Apples** show more variable timing with earlier ordering patterns, particularly on Monday and Thursday (around 11:30 AM). Both products see slightly later ordering times on weekends compared to some weekdays.
+
+
+# Problem 2: Zillow Rental Data Analysis
+
+This problem analyzes NYC rental price data to understand trends and distributions across different boroughs and time periods.
+
+First, I load and clean the rental data:
+
+```{r}
+# Read ZORI data
+zori_df <- read_csv("data/Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv",
+                    col_names = TRUE,
+                    show_col_types = FALSE)
+
+# Clean first 9 columns
+names(zori_df)[1:9] <- c("region_id","size_rank","region_name","region_type","state_name",
+                         "state","city","metro","county_name")
+
+# Pivot longer
+zillow_rent <- zori_df %>%
+  pivot_longer(cols = 10:ncol(zori_df), names_to = "date_str", values_to = "rental_price") %>%
+  mutate(date = as.Date(date_str),
+         year = year(date),
+         month = month(date, label = TRUE),
+         month_num = month(date)) %>%
+  filter(!is.na(rental_price)) %>%
+  rename(zip_code = region_name) %>%
+  arrange(zip_code, date)
+
+# ZIP code metadata
+zip_df <- read_csv("data/Zip Codes.csv") %>%
+  janitor::clean_names() %>%
+  mutate(zip_code = as.character(zip_code), borough = county) %>%
+  select(zip_code, borough, neighborhood) %>%
+  filter(!is.na(zip_code)) %>%
+  distinct()
+
+# Merge datasets
+zillow_rent <- zillow_rent %>%
+  mutate(zip_code = as.character(zip_code)) %>%
+  left_join(zip_df, by = "zip_code")
+
+# ZIP code observations
+zip_obs_count <- zillow_rent %>% count(zip_code)
+
+cat("Total ZIP codes:", nrow(zip_obs_count), "\n")
+cat("ZIP codes observed 116 times:", sum(zip_obs_count$n == 116), "\n")
+cat("ZIP codes observed <10 times:", sum(zip_obs_count$n < 10), "\n")
+```
+
+The data covers **149 unique ZIP codes**. **47 ZIP codes** are observed 116 times (the maximum possible from January 2015 to August 2024), while **26 ZIP codes** are observed fewer than 10 times. Some ZIP codes are observed rarely because they may represent new developments, areas with limited rental data, geographic changes over time, or commercial areas with few residential rentals.
+
+
+### Borough-Level Average Rent by Year
+
+To understand rental price trends, I calculated the average rental price by borough and year:
+
+```{r}
+borough_rent_year <- zillow_rent %>%
+  group_by(borough, year) %>%
+  summarise(avg_rent = mean(rental_price, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(
+    names_from = year,
+    values_from = avg_rent
+  )
+
+# Print the table
+borough_rent_year %>%
+  rename(Borough = borough) %>%
+  kable(digits = 0, align = "c", caption = "Average Rental Price by Borough and Year")
+```
+
+The table reveals clear rental price hierarchies and trends across NYC boroughs:
+
+- **Manhattan** consistently has the highest rents, increasing from $3,006 in 2015 to $4,053 in 2024
+- **Brooklyn** shows steady growth from $2,493 to $3,126 over the same period
+- **Queens** maintains moderate prices, rising from $2,215 to $2,694
+- **Bronx** offers the most affordable rents, growing from $1,760 to $2,497
+- **Staten Island** data is only available from 2020 onward, showing growth from $1,978 to $2,536
+
+Notably, all boroughs experienced a temporary dip or plateau in 2020-2021 during the COVID-19 pandemic, followed by strong recovery and growth through 2024.
+
+### NYC Rental Prices by ZIP Code
+
+To visualize the distribution of rental prices across all ZIP codes over time, I created a faceted plot:
+
+```{r zipcode_plot}
+# Fix borough names for better readability
+zillow_rent_with_proper_names <- zillow_rent %>%
+  mutate(
+    borough_proper = case_when(
+      borough == "Kings" ~ "Brooklyn",
+      borough == "New York" ~ "Manhattan", 
+      borough == "Richmond" ~ "Staten Island",
+      TRUE ~ borough  # Keep Bronx and Queens as they are
+    ),
+    borough_proper = factor(borough_proper, 
+                           levels = c("Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"))
+  )
+
+zillow_rent_with_proper_names %>%
+  ggplot(aes(x = date, y = rental_price, group = zip_code)) +
+  geom_line(alpha = 0.5, size = 0.4, color = "steelblue") +
+  facet_wrap(~ borough_proper, scales = "free_y") +
+  labs(
+    title = "NYC Rental Prices by ZIP Code (2015-2024)",
+    x = "Date",
+    y = "Rental Price ($)",
+    caption = "Each line represents one ZIP code"
+  ) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+This plot reveals several important patterns. **Manhattan** shows the highest rental prices with considerable variability across ZIP codes. **Brooklyn** and **Queens** display moderate price levels, while **Bronx** and **Staten Island** have lower overall rental prices. The faceting allows for clear comparisons across boroughs while accommodating their different price scales. The post-2021 period shows a particularly sharp acceleration in rental prices across the city.
+
+### Distribution of 2023 Rental Prices by Borough
+
+To examine the cross-sectional distribution of rental prices in the most recent complete year, I analyzed 2023 data:
+
+```{r distribution_2023}
+rent_2023 <- zillow_rent_with_proper_names %>%
+  filter(year == 2023) %>%
+  group_by(zip_code, borough_proper) %>%
+  summarize(avg_rent = mean(rental_price, na.rm = TRUE), .groups = "drop")
+
+rent_2023 %>%
+  ggplot(aes(x = borough_proper, y = avg_rent)) +
+  geom_boxplot(fill = "lightblue", alpha = 0.7) +
+  labs(
+    title = "Distribution of Average Rental Prices by Borough (2023)",
+    x = "Borough",
+    y = "Average Rental Price ($)"
+  ) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  theme_minimal(base_size = 12)
+
+```
+
+The boxplot shows that Manhattan has both the highest median rental price and the greatest variability across ZIP codes. There is substantial overlap between Brooklyn (also shows lower median rental prices distribution) and Queens, while Bronx and Staten Island show more compressed distributions with lower median prices.
+
+
+### Combined Plot
+
+Finally, I combined the time series and distribution plots into a single comprehensive visualization:
+
+```{r}
+# sample ZIP codes to reduce clutter
+set.seed(123)
+sample_zips <- zillow_rent_with_proper_names %>%
+  distinct(zip_code) %>%
+  slice_sample(n = 50) %>%  # pick 50 ZIP codes
+  pull(zip_code)
+
+# Create time series plot (Panel A)
+p1 <- zillow_rent_with_proper_names %>%
+  filter(zip_code %in% sample_zips) %>%
+  ggplot(aes(x = date, y = rental_price, group = zip_code)) +
+  geom_line(alpha = 0.4, size = 0.3, color = "steelblue") +
+  facet_wrap(~ borough_proper, scales = "free_y") +
+  labs(
+    title = "A: NYC Rental Prices by ZIP Code (Sample of 50 ZIPs)", 
+    x = "Date", 
+    y = "Rental Price ($)"
+  ) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Create distribution plot (Panel B)
+p2 <- rent_2023 %>%
+  ggplot(aes(x = borough_proper, y = avg_rent)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(
+    title = "B: Distribution of 2023 Rental Prices by Borough", 
+    x = "Borough", 
+    y = "Average Rental Price ($)"
+  ) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  theme_minimal(base_size = 12)
+
+# Combine plots
+combined_plot <- p1 / p2
+
+# Display combined plot
+combined_plot
+
+# Save to results folder
+if(!dir.exists("results")) dir.create("results")
+ggsave("results/zillow_combined_plot.png", combined_plot, width = 12, height = 10, dpi = 300)
+
+```
+# need to come back to this, hard to reaad. 
